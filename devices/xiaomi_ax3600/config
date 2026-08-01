@@ -46,10 +46,17 @@ CONFIG_PKG_RELRO_FULL=y
 CONFIG_USE_SECCOMP=y
 
 ## SSH Server Configuration
-CONFIG_PACKAGE_dropbear=n
-CONFIG_PACKAGE_openssh-moduli=y
-CONFIG_PACKAGE_openssh-server=y
-CONFIG_PACKAGE_openssh-sftp-server=y
+# Dropbear, bez OpenSSH
+CONFIG_DEFAULT_dropbear=y
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_openssh-moduli=n
+CONFIG_PACKAGE_openssh-server=n
+CONFIG_PACKAGE_openssh-sftp-server=n
+# CONFIG_PACKAGE_openssh-client is not set
+# CONFIG_PACKAGE_openssh-client-utils is not set
+# CONFIG_PACKAGE_openssh-keygen is not set
+# CONFIG_PACKAGE_openssh-sftp-avahi-service is not set
+# CONFIG_PACKAGE_openssh-sftp-client is not set
 
 ## SSL and Cryptography Configuration
 CONFIG_LUA_ECO_MBEDTLS=n
@@ -74,6 +81,15 @@ CONFIG_LIBCURL_OPENSSL=y
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_wpad-openssl=y
+
+## WireGuard
+CONFIG_PACKAGE_kmod-wireguard=y
+CONFIG_PACKAGE_wireguard-tools=y
+CONFIG_PACKAGE_luci-proto-wireguard=y
+CONFIG_PACKAGE_luci-app-wireguard=y
+
+## AdGuard Home
+CONFIG_PACKAGE_adguardhome=y
 
 ## Redundant Default Packages
 CONFIG_PACKAGE_kmod-phy-aquantia=n
