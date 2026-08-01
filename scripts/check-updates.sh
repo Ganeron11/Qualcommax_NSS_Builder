@@ -5,10 +5,12 @@
 # A build is needed when:
 #   - the event is anything other than `schedule` — a push means the builder config changed
 #     and workflow_dispatch is an explicit request, so both always rebuild; OR
-#   - on a scheduled tick, the latest release for RELEASE_PREFIX does not already record the
-#     current upstream SHA (and NSS SHA, when NSS_REPO is set).
+#   - on a scheduled tick, the upstream kernel version (qualcommax KERNEL_PATCHVER plus
+#     the point release in target/linux/generic/kernel-<patch>) differs from the version
+#     recorded in the latest release. Non-kernel upstream changes (drivers, packages,
+#     feeds) do not trigger a scheduled build — use workflow_dispatch to force one.
 #
-# Required tools: git, gh.
+# Required tools: git, gh, curl.
 #
 # Input env:
 #   UPSTREAM_REPO   OpenWrt source repo (owner/name)
@@ -39,6 +41,7 @@ NSS_REF="${NSS_REF:-}"
 EVENT_NAME="${EVENT_NAME:-}"
 REPO="${REPO:-${GITHUB_REPOSITORY:-}}"
 command -v git >/dev/null || log::die "git is required"
+command -v curl >/dev/null || log::die "curl is required"
 
 # Resolve a ref to a commit SHA via the remote.
 resolve_sha() {
@@ -48,35 +51,56 @@ resolve_sha() {
   printf '%s\n' "$sha"
 }
 
+# Resolve the qualcommax kernel version (e.g. "6.18.39") at a given upstream
+# commit: KERNEL_PATCHVER from the target Makefile plus the point release from
+# target/linux/generic/kernel-<patch>. Fails (non-zero) when unresolvable.
+resolve_kernel() {
+  local sha="$1" patch point
+  patch="$(curl -fsSL "https://raw.githubusercontent.com/$UPSTREAM_REPO/$sha/target/linux/qualcommax/Makefile" \
+    | sed -n 's/^KERNEL_PATCHVER[^0-9]*\([0-9][0-9.]*\).*/\1/p' | head -1)"
+  [[ -n "$patch" ]] || return 1
+  point="$(curl -fsSL "https://raw.githubusercontent.com/$UPSTREAM_REPO/$sha/target/linux/generic/kernel-${patch}" \
+    | sed -n "s/^LINUX_VERSION-${patch}[^0-9]*\([0-9][0-9.]*\).*/\1/p" | head -1)"
+  printf '%s%s\n' "$patch" "${point:+.$point}"
+}
+
 up_sha="$(resolve_sha "$UPSTREAM_REPO" "$UPSTREAM_REF")"
 nss_sha=""
 [[ -n "$NSS_REPO" ]] && nss_sha="$(resolve_sha "$NSS_REPO" "$NSS_REF")"
 
+cur_kernel=""
+rec_kernel=""
 if [[ "$EVENT_NAME" != "schedule" ]]; then
   # push (builder config changed) or manual dispatch (explicit) -> always rebuild.
   need=true
 else
-  # scheduled tick -> only rebuild when the upstream moved since the last release.
+  # scheduled tick -> only rebuild when the upstream kernel bumped since the
+  # last release.
   body=""
   if [[ -n "$REPO" ]]; then
     body="$(gh api "repos/$REPO/releases" --jq \
       "[.[] | select(.draft|not) | select(.tag_name | startswith(\"${RELEASE_PREFIX}-\"))] | sort_by(.created_at) | reverse | .[0].body // \"\"" \
       2>/dev/null || printf '%s' "")"
   fi
-  if [[ "$body" == *"$up_sha"* ]] && { [[ -z "$nss_sha" ]] || [[ "$body" == *"$nss_sha"* ]]; }; then
+  cur_kernel="$(resolve_kernel "$up_sha" || true)"
+  rec_kernel="$(sed -n 's/^[-*] \*\*Kernel\*\*: *\([^ ]*\).*/\1/p' <<<"$body" | head -1 | tr -d '`')"
+  # Fail-open: build when the kernel cannot be resolved or no release exists yet.
+  if [[ -n "$cur_kernel" && -n "$rec_kernel" && "$cur_kernel" == "$rec_kernel" ]]; then
     need=false
   else
     need=true
   fi
 fi
 
-log::info "$UPSTREAM_REPO@$UPSTREAM_REF -> ${up_sha:0:12}${nss_sha:+  nss ${nss_sha:0:12}}  build=$need"
+log::info "$UPSTREAM_REPO@$UPSTREAM_REF -> ${up_sha:0:12}${nss_sha:+  nss ${nss_sha:0:12}}${cur_kernel:+  kernel ${cur_kernel}}${rec_kernel:+  last ${rec_kernel}}  build=$need"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     echo "## Upstream check"
     echo "- \`$UPSTREAM_REPO\` -> \`${up_sha:0:12}\`"
     [[ -n "$nss_sha" ]] && echo "- nss -> \`${nss_sha:0:12}\`"
+    [[ -n "$cur_kernel" ]] && echo "- kernel -> \`$cur_kernel\`"
+    [[ -n "$rec_kernel" ]] && echo "- last release kernel -> \`$rec_kernel\`"
     echo "- need: **$need**"
   } >>"$GITHUB_STEP_SUMMARY"
 fi
