@@ -2,7 +2,7 @@ name: Build
 
 # Builds the ppe-nss images for every ipq807x and ipq60xx device, in six
 # groups and two flavours (default, and mesh on the 11.4 firmware line):
-#   check (kernel bumped?) -> draft release -> build each group -> publish -> prune
+#   check (upstream moved?) -> draft release -> build each group -> publish -> prune
 # All build parameters live in the `env:` block below and in devices/<group>/config.
 # The vendor NSS stack (edma-nss releases) was last built from the
 # archive/edma-nss-final tag of this repo.
@@ -17,7 +17,7 @@ on:
       - 'scripts/**'
       - '.github/workflows/build.yml'
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 4 * * *"
 
 concurrency:
   group: build-${{ github.ref }}
@@ -35,7 +35,6 @@ env:
   RELEASE_PREFIX: ppe-nss
   MESH_RELEASE_PREFIX: ppe-nss-mesh
   KEEP: "2"                     # newest releases to retain, per prefix
-  KERNEL_TARGET_DIR: qualcommax
   # nss-firmware, and the luci fork carrying luci-app-ppe-qos (openwrt/luci
   # PR 8965), which prepare-build.sh swaps in for the default luci feed.
   FEEDS: |
@@ -51,11 +50,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       EVENT_NAME: ${{ github.event_name }}
-      TARGET_DIR: ${{ env.KERNEL_TARGET_DIR }}
     outputs:
       upstream_sha: ${{ steps.check.outputs.upstream_sha }}
       nss_sha: ${{ steps.check.outputs.nss_sha }}
-      kernel_version: ${{ steps.check.outputs.kernel_version }}
       need: ${{ steps.check.outputs.need }}
     steps:
       - uses: actions/checkout@v7
@@ -90,7 +87,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       UPSTREAM_SHA: ${{ needs.check.outputs.upstream_sha }}
       NSS_SHA: ${{ needs.check.outputs.nss_sha }}
-      KERNEL_VERSION: ${{ needs.check.outputs.kernel_version }}
     outputs:
       tag: ${{ steps.draft.outputs.tag }}
       mesh_tag: ${{ steps.draft.outputs.mesh_tag }}
@@ -113,7 +109,6 @@ jobs:
               echo "- **Date**: $date"
               echo "- **Variant**: \`${name}\`"
               echo "- **Targets**: \`qualcommax/ipq807x\`, \`qualcommax/ipq60xx\`"
-              echo "- **Kernel**: \`${KERNEL_VERSION}\`"
               echo "- **Upstream**: \`${UPSTREAM_REPO}@${UPSTREAM_SHA}\`"
               if [[ -n "${NSS_SHA}" ]]; then
                 echo "- **NSS**: \`${NSS_SHA}\`"
